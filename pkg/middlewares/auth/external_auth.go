@@ -68,8 +68,6 @@ func (e *externalAuth) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
 	}
 	payload.Userid = user
 	payload.Password = password
-	payloadStr := fmt.Sprintf("%v", payload)
-	logger.Debug().Msg(payloadStr)
 
 	body, err := json.Marshal(payload)
 	if err != nil {
