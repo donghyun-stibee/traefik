@@ -130,6 +130,16 @@ func (b *Builder) buildConstructor(ctx context.Context, middlewareName string) (
 		}
 	}
 
+	// ExternalAuth
+	if config.ExternalAuth != nil {
+		if middleware != nil {
+			return nil, badConf
+		}
+		middleware = func(next http.Handler) (http.Handler, error) {
+			return auth.NewExternal(ctx, next, *config.ExternalAuth, middlewareName)
+		}
+	}
+
 	// Buffering
 	if config.Buffering != nil {
 		if middleware != nil {

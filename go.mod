@@ -1,6 +1,6 @@
 module github.com/traefik/traefik/v2
 
-go 1.19
+go 1.18
 
 require (
 	github.com/BurntSushi/toml v1.2.1
