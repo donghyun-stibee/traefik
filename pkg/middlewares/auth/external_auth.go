@@ -12,6 +12,7 @@ import (
 	"github.com/traefik/traefik/v2/pkg/tracing"
 	"io"
 	"net/http"
+	"strings"
 	"time"
 )
 
@@ -30,15 +31,17 @@ type externalAuth struct {
 	name        string
 	client      http.Client
 	auth        *goauth.BasicAuth
+	entryPoints []string
 }
 
 func NewExternal(ctx context.Context, next http.Handler, config dynamic.ExternalAuth, name string) (http.Handler, error) {
 	middlewares.GetLogger(ctx, name, externalTypeName).Debug().Msg("Creating middleware")
 
 	ea := &externalAuth{
-		address: config.Address,
-		next:    next,
-		name:    name,
+		address:     config.Address,
+		next:        next,
+		name:        name,
+		entryPoints: config.EntryPoints,
 	}
 	ea.client = http.Client{
 		CheckRedirect: func(r *http.Request, via []*http.Request) error {
@@ -58,6 +61,36 @@ func (e *externalAuth) GetTracingInformation() (string, ext.SpanKindEnum) {
 func (e *externalAuth) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
 	logger := middlewares.GetLogger(req.Context(), e.name, externalTypeName)
 	payload := Payload{}
+	needAuth := false
+
+	for _, ep := range e.entryPoints {
+		url := strings.Split(req.URL.RequestURI(), "?")[0]
+		//logger.Debug().Msgf("request to %s || entryPoints %s", url, ep)
+
+		// pattern match
+		if strings.Contains(ep, "*") {
+			nep := strings.Replace(ep, "/*", "", -1)
+			//logger.Debug().Msgf("entry point contains * (%s), url %s new entry point %s", ep, url, nep)
+			if strings.Contains(url, nep) {
+				needAuth = true
+				logStr := fmt.Sprintf("request to entry point [%s] which need to be authenticated", ep)
+				logger.Debug().Msg(logStr)
+			}
+		} else {
+			//logger.Debug().Msgf("url %s entry point %s", url, ep)
+			// exact match
+			if url == ep {
+				needAuth = true
+				logStr := fmt.Sprintf("request to entry point [%s] which need to be authenticated", ep)
+				logger.Debug().Msg(logStr)
+			}
+		}
+	}
+
+	if !needAuth {
+		e.next.ServeHTTP(rw, req)
+		return
+	}
 
 	user, password, ok := req.BasicAuth()
 	if !ok {
@@ -66,6 +99,7 @@ func (e *externalAuth) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
 		e.auth.RequireAuth(rw, req)
 		return
 	}
+
 	payload.Userid = user
 	payload.Password = password
 
@@ -102,7 +136,7 @@ func (e *externalAuth) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	respBody, readError := io.ReadAll(externalResponse.Body)
+	_, readError := io.ReadAll(externalResponse.Body)
 	if readError != nil {
 		logMessage := fmt.Sprintf("Error reading body %s. Cause: %s", e.address, readError)
 		logger.Debug().Msg(logMessage)
@@ -113,8 +147,6 @@ func (e *externalAuth) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
 	}
 	defer externalResponse.Body.Close()
 
-	logger.Debug().Msg(string(respBody))
-
 	if externalResponse.StatusCode != http.StatusOK {
 		logger.Debug().Msgf("Remote error %s. StatusCode: %d", e.address, externalResponse.StatusCode)
 		e.auth.RequireAuth(rw, req)
@@ -123,4 +155,5 @@ func (e *externalAuth) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
 
 	req.RequestURI = req.URL.RequestURI()
 	e.next.ServeHTTP(rw, req)
+	return
 }

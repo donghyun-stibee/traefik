@@ -225,7 +225,8 @@ type ForwardAuth struct {
 }
 
 type ExternalAuth struct {
-	Address string `yaml:"address,omitempty"`
+	Address     string   `yaml:"address,omitempty"`
+	EntryPoints []string `yaml:"entryPoints"`
 }
 
 // +k8s:deepcopy-gen=true
